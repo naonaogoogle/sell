@@ -1,6 +1,7 @@
 package com.google.sell.dataobject;
 
 import com.google.sell.enums.ProductStatusEnum;
+import com.google.sell.utils.EnumUtil;
 import lombok.Data;
 
 import javax.persistence.Id;
@@ -56,4 +57,8 @@ public class ProductInfo {
     private Date createTime;
 
     private Date updateTime;
+
+    public ProductStatusEnum getProductStatusEnum() {
+        return EnumUtil.getByCode(productStatus,ProductStatusEnum.class);
+    }
 }
