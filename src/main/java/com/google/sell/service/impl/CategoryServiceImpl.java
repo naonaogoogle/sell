@@ -4,6 +4,7 @@ import com.google.sell.dataobject.ProductCategory;
 import com.google.sell.repository.ProductCategoryRepository;
 import com.google.sell.service.CategoryService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
 
 import java.util.List;
 
@@ -11,6 +12,7 @@ import java.util.List;
  * Created by HuangHaoDong on 2017/10/20 on 23:20.
  */
 
+@Service
 public class CategoryServiceImpl implements CategoryService {
 
     @Autowired
