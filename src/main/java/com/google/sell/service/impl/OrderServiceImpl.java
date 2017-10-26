@@ -1,17 +1,33 @@
 package com.google.sell.service.impl;
 
+import com.google.sell.dataobject.OrderDetail;
+import com.google.sell.dataobject.OrderMaster;
+import com.google.sell.dataobject.ProductInfo;
+import com.google.sell.dto.CartDTO;
 import com.google.sell.dto.OrderDTO;
+import com.google.sell.enums.OrderStatusEnum;
+import com.google.sell.enums.PayStatusEnum;
+import com.google.sell.enums.ResultEnum;
+import com.google.sell.exception.SellException;
 import com.google.sell.repository.OrderDetailRepository;
 import com.google.sell.repository.OrderMasterRepository;
-import com.google.sell.service.OrderService;
-import com.google.sell.service.PayService;
-import com.google.sell.service.ProductService;
-import com.google.sell.service.PushMessageService;
+import com.google.sell.service.*;
+import com.google.sell.utils.KeyUtil;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.CollectionUtils;
+
+
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.util.Collections;
+import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Created by HuangHaoDong on 2017/10/21 on 11:45.
@@ -36,7 +52,8 @@ public class OrderServiceImpl implements OrderService {
     @Autowired
     private PushMessageService pushMessageService;
 
-
+    @Autowired
+    private WebSocket webSocket;
 
 
     /**
@@ -46,8 +63,46 @@ public class OrderServiceImpl implements OrderService {
      * @return 被创建的订单
      */
     @Override
+    @Transactional
     public OrderDTO create(OrderDTO orderDTO) {
-        return null;
+
+        String orderId = KeyUtil.genUniqueKey();
+        BigDecimal orderAmount = new BigDecimal(BigInteger.ZERO);
+
+        //1 查询商品数量和价格
+        List<OrderDetail> orderDetailList = orderDTO.getOrderDetailList();
+        for (OrderDetail orderDetail : orderDetailList) {
+            ProductInfo productInfo = productService.findOne(orderDetail.getProductId());
+            if (productInfo == null) {
+                throw new SellException(ResultEnum.PRODUCT_NOT_EXIST);
+            }
+            //2计算订单总价
+            orderAmount = productInfo.getProductPrice().multiply(new BigDecimal(orderDetail.getProductQuantity())).add(orderAmount);
+
+            //订单详情入库
+            orderDetail.setDetailId(KeyUtil.genUniqueKey());
+            orderDetail.setOrderId(orderId);
+            BeanUtils.copyProperties(productInfo, orderDetail);
+            orderDetailRepository.save(orderDetail);
+        }
+
+        //3写入订单数据库 orderMaster和orderDetail
+        OrderMaster orderMaster = new OrderMaster();
+        orderDTO.setOrderId(orderId);
+        BeanUtils.copyProperties(orderDTO, orderMaster);
+        orderMaster.setOrderAmount(orderAmount);
+        orderMaster.setOrderStatus(OrderStatusEnum.NEW.getCode());
+        orderMaster.setPayStatus(PayStatusEnum.WAIT.getCode());
+        orderMasterRepository.save(orderMaster);
+
+        //4扣库存
+        List<CartDTO> cartDTOList = orderDTO.getOrderDetailList().stream().map(e ->
+                new CartDTO(e.getProductId(), e.getProductQuantity())
+        ).collect(Collectors.toList());
+        productService.decreaseStock(cartDTOList);
+        //发送websocket消息
+        webSocket.sendMessage(orderDTO.getOrderId());
+        return orderDTO;
     }
 
     /**
@@ -58,7 +113,19 @@ public class OrderServiceImpl implements OrderService {
      */
     @Override
     public OrderDTO findOne(String orderId) {
-        return null;
+
+        OrderMaster orderMaster = orderMasterRepository.findOne(orderId);
+        if (orderMaster == null) {
+            throw new SellException(ResultEnum.ORDER_NOT_EXIST);
+        }
+        List<OrderDetail> orderDetailList = orderDetailRepository.findByOrOrderId(orderId);
+        if (CollectionUtils.isEmpty(orderDetailList)) {
+            throw new SellException(ResultEnum.ORDERDETAIL_NOT_EXIST);
+        }
+        OrderDTO orderDTO = new OrderDTO();
+        BeanUtils.copyProperties(orderMaster,orderDTO);
+        orderDTO.setOrderDetailList(orderDetailList);
+        return orderDTO;
     }
 
     /**
@@ -70,6 +137,9 @@ public class OrderServiceImpl implements OrderService {
      */
     @Override
     public Page<OrderDTO> findList(String buyerOpenid, Pageable pageable) {
+
+        Page<OrderMaster> orderMasterPage = orderMasterRepository.findByBuyerOpenId(buyerOpenid, pageable);
+
         return null;
     }
 
